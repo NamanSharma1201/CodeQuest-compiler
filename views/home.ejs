@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <%- include('./partials/head.ejs') %>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Online Compiler</title>
+    <style>
+      .container {
+        width: 100%;
+        max-width: 800px;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 5px 10px rgba(1, 180, 251, 0.836);
+        margin-top: 20px; /* Added margin-top to separate from navbar */
+      }
+      .container h1,
+      .container h2 {
+        color: #333;
+        margin-bottom: 10px;
+      }
+      .container .row {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .container .col {
+        flex: 1;
+        margin-right: 10px;
+      }
+      .container .col:last-child {
+        margin-right: 0;
+      }
+      .container .editor {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .container .editor textarea {
+        width: 100%;
+        height: 250px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      .container .user-input textarea,
+      .container .output pre {
+        width: 100%;
+        height: 150px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+        font-size: 14px;
+        box-sizing: border-box;
+        white-space: pre-wrap;
+        overflow: auto;
+      }
+      .container button {
+        display: block;
+        width: 100%;
+        max-width: 200px;
+        margin: 20px auto 0;
+        padding: 10px;
+        border: none;
+        border-radius: 4px;
+        background-color: #007bff;
+        color: #fff;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+      .container button:hover {
+        background-color: #0056b3;
+      }
+      .container button:active {
+        background-color: #004cba;
+      }
+    </style>
+  </head>
+  <body class="bg-body-secondary">
+    <%- include('./partials/navbar.ejs') %>
+
+    <div class="container">
+      <form action="/run" method="POST">
+        <div class="editor">
+          <h2>Code Editor</h2>
+          <textarea
+            name="code"
+            id="code-input"
+            placeholder="Enter your code here..."
+          >
+<%= typeof code !== 'undefined' ? code : '' %></textarea
+          >
+        </div>
+        <div class="row">
+          <div class="col">
+            <div class="user-input">
+              <h2>User Input</h2>
+              <textarea
+                name="input"
+                id="user-input"
+                placeholder="Enter user input here..."
+              >
+<%= typeof input !== 'undefined' ? input : '' %></textarea
+              >
+            </div>
+          </div>
+          <div class="col">
+            <div class="output">
+              <h2>Output</h2>
+              <% if (typeof output !== 'undefined') { %>
+              <pre>
+<%= typeof output === 'object' ? JSON.stringify(output, null, 2) : output %></pre
+              >
+              <% } else { %>
+              <pre>Output will be displayed here...</pre>
+              <% } %>
+            </div>
+          </div>
+        </div>
+        <button type="submit">Run Code</button>
+      </form>
+    </div>
+
+    <%- include('./partials/scripts.ejs') %>
+  </body>
+</html>
