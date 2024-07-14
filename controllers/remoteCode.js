@@ -25,7 +25,7 @@ export const executeCodeRemote = async (req, res) => {
 
   const inputFile = path.join(inputPath, `${id}.txt`);
   const codeFile = path.join(codePath, `${id}.${language}`);
-  const executableFile = path.join(executablePath, `${id}.exe`);
+  const executableFile = path.join(executablePath, `${id}.out`);
   let javaFileName;
 
   try {
