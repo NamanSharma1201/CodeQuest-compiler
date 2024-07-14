@@ -22,7 +22,7 @@ export const executeCode = async function (req, res) {
   const id = uuid();
   const fileName = path.join(codePath, `${id}.cpp`);
   const inputfile = path.join(inputPath, `${id}.txt`);
-  const outputfile = path.join(outputPath, `${id}.exe`);
+  const outputfile = path.join(outputPath, `${id}.out`);
 
   try {
     fs.writeFileSync(fileName, code);
@@ -31,7 +31,7 @@ export const executeCode = async function (req, res) {
     let childProcess;
     const compileCode = new Promise((resolve, reject) => {
       childProcess = exec(
-        `g++ ${fileName} -o ${outputfile} && cd ${outputPath} && ${id}.exe < ${inputfile}`,
+        `g++ ${fileName} -o ${outputfile} && cd ${outputPath} && ${id}.out < ${inputfile}`,
         (error, stdout, stderr) => {
           if (error) {
             reject({ error, stderr });
