@@ -22,7 +22,7 @@ export const executeCode = async function (req, res) {
   const id = uuid();
   const fileName = path.join(codePath, `${id}.cpp`);
   const inputfile = path.join(inputPath, `${id}.txt`);
-  const outputfile = path.join(outputPath, `${id}.out`);
+  const outputfile = path.join(outputPath, `${id}`);
 
   try {
     fs.writeFileSync(fileName, code);
@@ -30,18 +30,21 @@ export const executeCode = async function (req, res) {
 
     let childProcess;
     const compileCode = new Promise((resolve, reject) => {
-      childProcess = exec(
-        `g++ ${fileName} -o ${outputfile} && cd ${outputPath} && ${id}.out < ${inputfile}`,
-        (error, stdout, stderr) => {
-          if (error) {
-            reject({ error, stderr });
-          } else if (stderr) {
-            reject(stderr);
-          } else {
-            resolve(stdout);
-          }
+      const command = `g++ ${fileName} -o ${outputfile} && chmod +x ${outputfile} && ${outputfile} < ${inputfile}`;
+      // console.log("Executing command:", command);
+      const options = { maxBuffer: 1024 * 1024 * 10 }; // 10MB buffer
+      childProcess = exec(command, options, (error, stdout, stderr) => {
+        if (error) {
+          // console.error("Compilation error:", error);
+          reject({ error, stderr });
+        } else if (stderr) {
+          // console.error("Compilation stderr:", stderr);
+          reject(stderr);
+        } else {
+          // console.log("Compilation stdout:", stdout);
+          resolve(stdout);
         }
-      );
+      });
     });
 
     const timeout = new Promise((_, reject) => {
@@ -64,7 +67,7 @@ export const executeCode = async function (req, res) {
     });
   } finally {
     try {
-      const filesToDelete = [fileName, inputfile, outputfile];
+      const filesToDelete = [fileName, inputfile, `${outputfile}.out`];
       filesToDelete.forEach((file) => {
         if (fs.existsSync(file)) {
           fs.unlinkSync(file);
@@ -80,7 +83,7 @@ async function killAllChildProcesses(pid) {
   return new Promise((resolve, reject) => {
     psTree(pid, (err, children) => {
       if (err) {
-        console.error("Error finding child processes:", err);
+        // console.error("Error finding child processes:", err);
         return reject(err);
       }
       [pid, ...children.map((p) => p.PID)].forEach((tpid) => {

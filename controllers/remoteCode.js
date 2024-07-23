@@ -1,26 +1,35 @@
 import path from "path";
 import { v4 as uuid } from "uuid";
 import { fileURLToPath } from "url";
-import fs from "fs";
+import { promises as fs } from "fs";
 import { exec } from "child_process";
 import psTree from "ps-tree";
+import { promisify } from "util";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const execAsync = promisify(exec);
+const psTreeAsync = promisify(psTree);
+
+const CONFIG = {
+  TIMEOUT: 5000,
+  PATHS: {
+    INPUTS: path.join(__dirname, "../Remote/Inputs"),
+    CODES: path.join(__dirname, "../Remote/Codes"),
+    EXECUTABLES: path.join(__dirname, "../Remote/Executables"),
+  },
+};
+
 export const executeCodeRemote = async (req, res) => {
   const { language, code, input } = req.body;
   if (!code || !language) {
-    return res.send({ message: "Invalid Request" });
+    return res.json({ output: "Invalid Request" });
   }
 
-  const inputPath = path.join(__dirname, "../Remote/Inputs", language);
-  const codePath = path.join(__dirname, "../Remote/Codes", language);
-  const executablePath = path.join(
-    __dirname,
-    "../Remote/Executables",
-    language
-  );
+  const inputPath = path.join(CONFIG.PATHS.INPUTS, language);
+  const codePath = path.join(CONFIG.PATHS.CODES, language);
+  const executablePath = path.join(CONFIG.PATHS.EXECUTABLES, language);
   const id = uuid();
 
   const inputFile = path.join(inputPath, `${id}.txt`);
@@ -29,74 +38,49 @@ export const executeCodeRemote = async (req, res) => {
   let javaFileName;
 
   try {
-    fs.writeFileSync(inputFile, input);
+    await fs.writeFile(inputFile, input);
 
     if (language === "java") {
-      const className = code.match(/class\s+(\w+)/)[1];
+      const match = code.match(/class\s+(\w+)/);
+      if (!match) {
+        throw new Error("Unable to extract Java class name");
+      }
+      const className = match[1];
       javaFileName = `${className}.java`;
-      fs.writeFileSync(path.join(codePath, javaFileName), code);
+      await fs.writeFile(path.join(codePath, javaFileName), code);
     } else {
-      fs.writeFileSync(codeFile, code);
+      await fs.writeFile(codeFile, code);
     }
 
+    // console.log(language);
     let childProcess;
-    const runCode = new Promise((resolve, reject) => {
-      if (language === "cpp") {
-        childProcess = exec(
-          `g++ ${codeFile} -o ${executableFile} && ${executableFile} < ${inputFile}`,
-          (error, stdout, stderr) => {
-            if (error) {
-              reject({ error, stderr });
-            } else if (stderr) {
-              reject(stderr);
-            } else {
-              resolve(stdout);
-            }
-          }
-        );
-      } else if (language === "java") {
-        const className = code.match(/class\s+(\w+)/)[1];
-        childProcess = exec(
-          `javac ${path.join(
+    const runCode = new Promise(async (resolve, reject) => {
+      const options = { maxBuffer: 1024 * 1024 * 10 }; // 10MB buffer
+      try {
+        let command;
+        if (language === "cpp") {
+          command = `g++ ${codeFile} -o ${executableFile} && chmod +x ${executableFile} && ${executableFile} < ${inputFile}`;
+        } else if (language === "java") {
+          const className = code.match(/class\s+(\w+)/)[1];
+          command = `javac ${path.join(
             codePath,
             javaFileName
-          )} && cd ${codePath} && java ${className} < ${inputFile}`,
-          (error, stdout, stderr) => {
-            if (error) {
-              reject({ error, stderr });
-            } else if (stderr) {
-              reject(stderr);
-            } else {
-              resolve(stdout);
-            }
-          }
-        );
-      } else if (language === "py") {
-        childProcess = exec(
-          `python ${codeFile} < ${inputFile}`,
-          (error, stdout, stderr) => {
-            if (error) {
-              reject({ error, stderr });
-            } else if (stderr) {
-              reject(stderr);
-            } else {
-              resolve(stdout);
-            }
-          }
-        );
-      } else {
-        childProcess = exec(
-          `node ${codeFile} < ${inputFile}`,
-          (error, stdout, stderr) => {
-            if (error) {
-              reject({ error, stderr });
-            } else if (stderr) {
-              reject(stderr);
-            } else {
-              resolve(stdout);
-            }
-          }
-        );
+          )} && cd ${codePath} && java ${className} < ${inputFile}`;
+        } else if (language === "py") {
+          command = `python ${codeFile} < ${inputFile}`;
+        } else {
+          command = `node ${codeFile} < ${inputFile}`;
+        }
+
+        // console.log(`Executing command: ${command}`); // Debug statement
+        const { stdout, stderr } = await execAsync(command, options);
+        if (stderr) {
+          reject({ output: stderr });
+        } else {
+          resolve({ output: stdout });
+        }
+      } catch (error) {
+        reject({ output: error.message, stderr: error.stderr });
       }
     });
 
@@ -105,14 +89,18 @@ export const executeCodeRemote = async (req, res) => {
         if (childProcess) {
           await killAllChildProcesses(childProcess.pid);
         }
-        reject("Time Limit Exceeded");
-      }, 5000);
+        reject({ output: "Time Limit Exceeded" });
+      }, CONFIG.TIMEOUT);
     });
 
-    const output = await Promise.race([timeout, runCode]);
-    res.send(output);
+    try {
+      const result = await Promise.race([timeout, runCode]);
+      res.json(result);
+    } catch (err) {
+      res.json(err);
+    }
   } catch (err) {
-    res.send(err.stderr ? err.stderr : err);
+    res.json({ output: err.message || "Internal Error" });
   } finally {
     try {
       const filesToDelete = [codeFile, inputFile, executableFile];
@@ -122,11 +110,9 @@ export const executeCodeRemote = async (req, res) => {
           path.join(codePath, javaFileName.replace(".java", ".class"))
         );
       }
-      filesToDelete.forEach((file) => {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
-        }
-      });
+      await Promise.all(
+        filesToDelete.map((file) => fs.unlink(file).catch(() => {}))
+      );
     } catch (deleteErr) {
       // console.error("Error deleting files:", deleteErr);
     }
@@ -134,38 +120,43 @@ export const executeCodeRemote = async (req, res) => {
 };
 
 async function killAllChildProcesses(pid) {
-  return new Promise((resolve, reject) => {
-    psTree(pid, (err, children) => {
-      if (err) {
-        // console.error("Error finding child processes:", err);
-        return reject(err);
+  try {
+    const children = await psTreeAsync(pid);
+    children.forEach((child) => {
+      try {
+        process.kill(child.PID);
+      } catch (e) {
+        // console.error(`Failed to kill process ${child.PID}:`, e);
       }
-      [pid, ...children.map((p) => p.PID)].forEach((tpid) => {
-        try {
-          process.kill(tpid);
-        } catch (e) {
-          // console.error(`Error killing process ${tpid}:`, e);
-        }
-      });
-      resolve();
     });
-  });
+    process.kill(pid);
+  } catch (err) {
+    // console.error(`Error killing processes:`, err);
+  }
 }
+
 export const submitCodeRemote = async (req, res) => {
   const { language, code, inputs, outputs } = req.body;
-  if (!language || !code || !inputs || !outputs) {
-    return res.send("Invalid Request");
+  if (
+    !language ||
+    !code ||
+    !Array.isArray(inputs) ||
+    !Array.isArray(outputs) ||
+    inputs.length !== outputs.length
+  ) {
+    return res.json({ output: "Invalid Request" });
   }
 
   try {
     for (let i = 0; i < inputs.length; i++) {
-      const output = await new Promise((resolve, reject) => {
+      const result = await new Promise((resolve, reject) => {
         const dummyReq = {
           body: { language, code, input: inputs[i] },
         };
 
         const dummyRes = {
-          send: (result) => {
+          json: function (result) {
+            this.result = result;
             resolve(result);
           },
         };
@@ -173,16 +164,20 @@ export const submitCodeRemote = async (req, res) => {
         executeCodeRemote(dummyReq, dummyRes).catch(reject);
       });
 
-      // Trim whitespace and newlines from the output and the expected output
+      if (result.output === "Time Limit Exceeded") {
+        return res.json({
+          output: `Time Limit Exceeded at TestCase ${i + 1}`,
+        });
+      }
 
-      if (output.trim() !== outputs[i].trim()) {
-        return res.send(`WRONG ANSWER at TestCase ${i + 1}`);
+      if (result.output.trim() !== outputs[i].trim()) {
+        return res.json({ output: `WRONG ANSWER at TestCase ${i + 1}` });
       }
     }
 
-    res.send("ACCEPTED");
+    res.json({ output: "ACCEPTED" });
   } catch (error) {
-    console.error("Error submitting code:", error);
-    res.send("Internal Server Error");
+    // console.error("Error submitting code:", error);
+    res.json({ output: "Internal Server Error", error: error.message });
   }
 };
